@@ -12,6 +12,7 @@
 #![allow(non_snake_case)]
 
 use super::Device;
+use std::ptr;
 use windows::core::Interface;
 use windows::Win32::Foundation::BOOL;
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
@@ -59,7 +60,7 @@ pub fn get_mute_default() -> Option<bool> {
 pub fn set_mute_default(muted: bool) {
     if let Some(vol) = endpoint_volume() {
         unsafe {
-            let _ = vol.SetMute(BOOL::from(muted), None);
+            let _ = vol.SetMute(BOOL::from(muted), ptr::null());
         }
     }
 }
@@ -76,7 +77,7 @@ pub fn get_volume_default() -> Option<f32> {
 pub fn set_volume_default(value: f32) {
     if let Some(vol) = endpoint_volume() {
         unsafe {
-            let _ = vol.SetMasterVolumeLevelScalar(value.clamp(0.0, 1.0), None);
+            let _ = vol.SetMasterVolumeLevelScalar(value.clamp(0.0, 1.0), ptr::null());
         }
     }
 }
