@@ -1,0 +1,13 @@
+# Rust / Tauri
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# Swift reference (reference/macos-swift)
+.build/
+build/
+*.xcodeproj
+.swiftpm/
+
+.DS_Store
+node_modules/

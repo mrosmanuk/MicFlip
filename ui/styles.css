@@ -1,0 +1,106 @@
+:root {
+  --bg: #1c1c1e;
+  --panel: #2a2a2d;
+  --text: #f2f2f7;
+  --muted: #8e8e93;
+  --accent: #f5413a;
+  --green: #34c759;
+  --border: #3a3a3d;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px -apple-system, "Segoe UI", system-ui, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body { padding: 16px; }
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+
+.badge {
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #fff;
+  background: var(--accent);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.badge.muted { background: #6b6b70; color: #d8d8da; }
+
+.status-text { flex: 1; }
+.device { font-weight: 600; }
+.state { color: var(--muted); font-size: 12px; }
+
+.toggle, .beer, .recorder {
+  background: #3a3a3d;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.toggle:hover, .beer:hover, .recorder:hover { background: #46464a; }
+.recorder.recording { border-color: var(--accent); color: var(--accent); }
+.beer { width: 100%; font-weight: 600; }
+
+section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 6px 14px 12px;
+  margin-bottom: 14px;
+}
+h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  margin: 12px 0 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+}
+.row:first-of-type { border-top: none; }
+.row span { font-size: 13px; }
+
+select, input[type="range"] { max-width: 55%; }
+select {
+  background: #3a3a3d;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+.hint { color: var(--muted); font-size: 11px; margin: 8px 0 4px; line-height: 1.4; }
+
+footer {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  padding: 4px 0 2px;
+}
+
+input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
