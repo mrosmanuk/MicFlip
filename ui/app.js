@@ -90,10 +90,13 @@ function keyToken(e) {
 }
 
 function buildAccelerator(e) {
+  // Record Ctrl and Cmd/Meta as distinct keys (don't collapse to CmdOrCtrl),
+  // so the registered shortcut matches the physical keys the user pressed.
   const parts = [];
-  if (e.metaKey || e.ctrlKey) parts.push("CmdOrCtrl");
+  if (e.ctrlKey) parts.push("Control");
   if (e.altKey) parts.push("Alt");
   if (e.shiftKey) parts.push("Shift");
+  if (e.metaKey) parts.push("Super");
   const key = keyToken(e);
   if (!key) return null;
   parts.push(key);
@@ -101,14 +104,15 @@ function buildAccelerator(e) {
 }
 
 function prettyAccelerator(accel) {
-  if (!accel) return "—";
+  if (!accel) return "-";
   const mac = navigator.platform.toLowerCase().includes("mac");
-  return accel
-    .replace("CmdOrCtrl", mac ? "⌘" : "Ctrl")
-    .replace("Shift", mac ? "⇧" : "Shift")
-    .replace("Alt", mac ? "⌥" : "Alt")
-    .split("+")
-    .join(mac ? "" : " + ");
+  const sym = mac
+    ? { CmdOrCtrl: "⌘", Super: "⌘", Meta: "⌘", Command: "⌘", Cmd: "⌘",
+        Control: "⌃", Ctrl: "⌃", Alt: "⌥", Option: "⌥", Shift: "⇧" }
+    : { CmdOrCtrl: "Ctrl", Super: "Win", Meta: "Win", Command: "Win", Cmd: "Ctrl",
+        Control: "Ctrl", Ctrl: "Ctrl", Alt: "Alt", Option: "Alt", Shift: "Shift" };
+  const sep = mac ? "" : " + ";
+  return accel.split("+").map((t) => sym[t] || t).join(sep);
 }
 
 // --- devices + volume -------------------------------------------------------
@@ -146,6 +150,7 @@ $("volume").addEventListener("input", (e) => {
 // --- support / footer -------------------------------------------------------
 
 $("beer").addEventListener("click", () => invoke("open_donation"));
+$("miccheck").addEventListener("click", () => invoke("open_mic_check"));
 
 async function loadInfo() {
   const info = await invoke("app_info");

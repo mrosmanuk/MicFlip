@@ -102,6 +102,6 @@ impl Mic {
     }
 
     pub fn current_device_name(&self) -> String {
-        platform::default_name().unwrap_or_else(|| "—".to_string())
+        platform::default_name().unwrap_or_else(|| "-".to_string())
     }
 }

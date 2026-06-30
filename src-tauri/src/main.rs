@@ -2,12 +2,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod audio;
+mod miccheck;
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use audio::{Device, Mic};
+use miccheck::MicCheck;
 use serde::{Deserialize, Serialize};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -41,6 +45,7 @@ impl Default for Settings {
 
 struct AppState {
     mic: Mic,
+    mic_check: MicCheck,
     settings: Mutex<Settings>,
     config_path: PathBuf,
 }
@@ -79,9 +84,88 @@ fn refresh_state(app: &AppHandle, muted: bool) {
 }
 
 fn toggle_from_app(app: &AppHandle) {
-    let state = app.state::<AppState>();
-    let muted = state.mic.toggle();
+    let muted = app.state::<AppState>().mic.toggle();
+    on_toggle(app, muted);
+}
+
+/// Update everything the user perceives after a toggle: tray icon, the open
+/// windows, plus the optional sound and HUD notifications.
+fn on_toggle(app: &AppHandle, muted: bool) {
     refresh_state(app, muted);
+    let (sound, visual) = {
+        let state = app.state::<AppState>();
+        let g = state.settings.lock().unwrap();
+        (g.sound_enabled, g.visual_enabled)
+    };
+    if sound {
+        play_feedback(muted);
+    }
+    if visual {
+        show_hud(app, muted);
+    }
+}
+
+fn play_feedback(muted: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        let sound = if muted { "Funk" } else { "Tink" };
+        let _ = std::process::Command::new("afplay")
+            .arg(format!("/System/Library/Sounds/{sound}.aiff"))
+            .spawn();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let wav = if muted { "chord.wav" } else { "chimes.wav" };
+        let cmd = format!(
+            "(New-Object Media.SoundPlayer 'C:\\Windows\\Media\\{wav}').PlaySync()"
+        );
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-c", &cmd])
+            .spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // Best-effort; relies on libcanberra sounds being present.
+        let id = if muted { "dialog-warning" } else { "message" };
+        let _ = std::process::Command::new("canberra-gtk-play")
+            .args(["-i", id])
+            .spawn();
+    }
+}
+
+static HUD_GEN: AtomicU64 = AtomicU64::new(0);
+
+fn show_hud(app: &AppHandle, muted: bool) {
+    let Some(hud) = app.get_webview_window("hud") else {
+        return;
+    };
+    let _ = hud.emit("hud:show", muted);
+    position_hud(&hud);
+    let _ = hud.show();
+
+    // Auto-hide after a moment; a generation counter prevents an earlier
+    // timer from hiding the HUD that a later toggle just re-showed.
+    let generation = HUD_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(1200));
+        if HUD_GEN.load(Ordering::SeqCst) == generation {
+            if let Some(hud) = app.get_webview_window("hud") {
+                let _ = hud.hide();
+            }
+        }
+    });
+}
+
+fn position_hud(hud: &tauri::WebviewWindow) {
+    if let Ok(Some(monitor)) = hud.current_monitor() {
+        let screen = monitor.size();
+        if let Ok(win) = hud.outer_size() {
+            let x = (screen.width as i32 - win.width as i32) / 2;
+            let y = (screen.height as f64 * 0.78) as i32;
+            let _ = hud.set_position(tauri::PhysicalPosition::new(x, y));
+        }
+    }
 }
 
 // --- Commands ---------------------------------------------------------------
@@ -103,14 +187,14 @@ fn get_state(state: State<AppState>) -> MicState {
 #[tauri::command]
 fn toggle(app: AppHandle) -> bool {
     let muted = app.state::<AppState>().mic.toggle();
-    refresh_state(&app, muted);
+    on_toggle(&app, muted);
     muted
 }
 
 #[tauri::command]
 fn set_muted(app: AppHandle, muted: bool) {
     app.state::<AppState>().mic.set_muted(muted);
-    refresh_state(&app, muted);
+    on_toggle(&app, muted);
 }
 
 #[tauri::command]
@@ -158,6 +242,21 @@ fn save_settings(app: AppHandle, settings: Settings) {
 #[tauri::command]
 fn open_donation() {
     open_url(DONATION_URL);
+}
+
+#[tauri::command]
+fn open_mic_check(app: AppHandle) {
+    open_mic_check_window(&app);
+}
+
+#[tauri::command]
+fn start_mic_check(app: AppHandle) {
+    app.state::<AppState>().mic_check.start(app.clone());
+}
+
+#[tauri::command]
+fn stop_mic_check(app: AppHandle) {
+    app.state::<AppState>().mic_check.stop();
 }
 
 #[derive(Serialize)]
@@ -212,17 +311,22 @@ fn open_settings_window(app: &AppHandle) {
         .build();
 }
 
+fn open_mic_check_window(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("miccheck") {
+        let _ = win.show();
+        let _ = win.set_focus();
+        return;
+    }
+    let _ = WebviewWindowBuilder::new(app, "miccheck", WebviewUrl::App("miccheck.html".into()))
+        .title("Mic Check")
+        .inner_size(380.0, 260.0)
+        .resizable(false)
+        .build();
+}
+
 // --- App entry --------------------------------------------------------------
 
 fn main() {
-    // Hidden one-shot for verifying the OS mute backend without the UI.
-    if std::env::args().any(|a| a == "--toggle-test") {
-        let mic = Mic::new();
-        let muted = mic.toggle();
-        println!("toggled -> muted={muted} device={}", mic.current_device_name());
-        return;
-    }
-
     tauri::Builder::default()
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -249,6 +353,7 @@ fn main() {
 
             let state = AppState {
                 mic: Mic::new(),
+                mic_check: MicCheck::new(),
                 settings: Mutex::new(settings.clone()),
                 config_path,
             };
@@ -257,11 +362,11 @@ fn main() {
 
             // Tray.
             let toggle_i = MenuItem::with_id(app, "toggle", "Toggle Mute", true, None::<&str>)?;
+            let miccheck_i = MenuItem::with_id(app, "miccheck", "Mic Check…", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
-            let beer_i = MenuItem::with_id(app, "beer", "Buy Me a Beer 🍺", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit MicFlip", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&toggle_i, &settings_i, &sep, &beer_i, &quit_i])?;
+            let menu = Menu::with_items(app, &[&toggle_i, &miccheck_i, &settings_i, &sep, &quit_i])?;
 
             TrayIconBuilder::with_id(TRAY_ID)
                 .icon(tray_image(initial_muted))
@@ -269,12 +374,26 @@ fn main() {
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "toggle" => toggle_from_app(app),
+                    "miccheck" => open_mic_check_window(app),
                     "settings" => open_settings_window(app),
-                    "beer" => open_url(DONATION_URL),
                     "quit" => app.exit(0),
                     _ => {}
                 })
                 .build(app)?;
+
+            // Pre-create the hidden HUD overlay window (transparent, floating).
+            let _ = WebviewWindowBuilder::new(app, "hud", WebviewUrl::App("hud.html".into()))
+                .title("MicFlip HUD")
+                .inner_size(220.0, 220.0)
+                .decorations(false)
+                .transparent(true)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .resizable(false)
+                .shadow(false)
+                .focused(false)
+                .visible(false)
+                .build()?;
 
             // Global shortcut.
             register_hotkey(&handle, &settings.hotkey);
@@ -296,6 +415,9 @@ fn main() {
             get_settings,
             save_settings,
             open_donation,
+            open_mic_check,
+            start_mic_check,
+            stop_mic_check,
             app_info,
         ])
         .build(tauri::generate_context!())
