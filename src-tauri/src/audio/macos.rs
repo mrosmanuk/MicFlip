@@ -28,7 +28,9 @@ const kAudioObjectSystemObject: AudioObjectID = 1;
 const kElementMain: u32 = 0;
 const kScopeGlobal: u32 = fourcc(b"glob");
 const kScopeInput: u32 = fourcc(b"inpt");
+const kScopeOutput: u32 = fourcc(b"outp");
 const kDefaultInputDevice: u32 = fourcc(b"dIn ");
+const kDefaultOutputDevice: u32 = fourcc(b"dOut");
 const kDevices: u32 = fourcc(b"dev#");
 const kMute: u32 = fourcc(b"mute");
 const kVolumeScalar: u32 = fourcc(b"volm");
@@ -74,8 +76,8 @@ fn addr(selector: u32, scope: u32, element: u32) -> AudioObjectPropertyAddress {
 
 const ELEMENTS: [u32; 3] = [kElementMain, 1, 2];
 
-fn default_device() -> AudioObjectID {
-    let a = addr(kDefaultInputDevice, kScopeGlobal, kElementMain);
+fn default_device_for(selector: u32) -> AudioObjectID {
+    let a = addr(selector, kScopeGlobal, kElementMain);
     let mut dev: AudioObjectID = 0;
     let mut size = std::mem::size_of::<AudioObjectID>() as u32;
     unsafe {
@@ -89,6 +91,10 @@ fn default_device() -> AudioObjectID {
         );
     }
     dev
+}
+
+fn default_device() -> AudioObjectID {
+    default_device_for(kDefaultInputDevice)
 }
 
 fn string_property(dev: AudioObjectID, selector: u32) -> Option<String> {
@@ -113,8 +119,8 @@ fn device_name(dev: AudioObjectID) -> Option<String> {
     string_property(dev, kObjectName)
 }
 
-fn has_input(dev: AudioObjectID) -> bool {
-    let a = addr(kStreamConfiguration, kScopeInput, kElementMain);
+fn has_stream(dev: AudioObjectID, scope: u32) -> bool {
+    let a = addr(kStreamConfiguration, scope, kElementMain);
     let mut size = 0u32;
     if unsafe { AudioObjectGetPropertyDataSize(dev, &a, 0, ptr::null(), &mut size) } != 0 || size < 4 {
         return false;
@@ -129,6 +135,59 @@ fn has_input(dev: AudioObjectID) -> bool {
     // First field of AudioBufferList is mNumberBuffers (UInt32).
     let num_buffers = u32::from_ne_bytes([buf[0], buf[1], buf[2], buf[3]]);
     num_buffers > 0
+}
+
+fn has_input(dev: AudioObjectID) -> bool {
+    has_stream(dev, kScopeInput)
+}
+
+fn has_output(dev: AudioObjectID) -> bool {
+    has_stream(dev, kScopeOutput)
+}
+
+/// Enumerate every audio device the system knows about (their raw ids).
+fn all_device_ids() -> Vec<AudioObjectID> {
+    let a = addr(kDevices, kScopeGlobal, kElementMain);
+    let mut size = 0u32;
+    if unsafe { AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &a, 0, ptr::null(), &mut size) }
+        != 0
+    {
+        return vec![];
+    }
+    let count = size as usize / std::mem::size_of::<AudioObjectID>();
+    let mut ids = vec![0u32; count];
+    if unsafe {
+        AudioObjectGetPropertyData(
+            kAudioObjectSystemObject,
+            &a,
+            0,
+            ptr::null(),
+            &mut size,
+            ids.as_mut_ptr() as *mut c_void,
+        )
+    } != 0
+    {
+        return vec![];
+    }
+    ids
+}
+
+fn set_default_for(selector: u32, id: &str) {
+    let Ok(dev) = id.parse::<AudioObjectID>() else {
+        return;
+    };
+    let a = addr(selector, kScopeGlobal, kElementMain);
+    let mut v = dev;
+    unsafe {
+        AudioObjectSetPropertyData(
+            kAudioObjectSystemObject,
+            &a,
+            0,
+            ptr::null(),
+            std::mem::size_of::<AudioObjectID>() as u32,
+            &mut v as *mut _ as *const c_void,
+        );
+    }
 }
 
 // --- mute flag ---
@@ -174,9 +233,9 @@ fn set_mute_value(dev: AudioObjectID, muted: bool) -> bool {
 
 // --- volume ---
 
-fn volume_value(dev: AudioObjectID) -> Option<f32> {
+fn volume_value(dev: AudioObjectID, scope: u32) -> Option<f32> {
     for &el in &ELEMENTS {
-        let a = addr(kVolumeScalar, kScopeInput, el);
+        let a = addr(kVolumeScalar, scope, el);
         if unsafe { AudioObjectHasProperty(dev, &a) } == 0 {
             continue;
         }
@@ -192,11 +251,11 @@ fn volume_value(dev: AudioObjectID) -> Option<f32> {
     None
 }
 
-fn set_volume_value(dev: AudioObjectID, value: f32) -> bool {
+fn set_volume_value(dev: AudioObjectID, scope: u32, value: f32) -> bool {
     let mut did_set = false;
     let mut v: f32 = value.clamp(0.0, 1.0);
     for &el in &ELEMENTS {
-        let a = addr(kVolumeScalar, kScopeInput, el);
+        let a = addr(kVolumeScalar, scope, el);
         if unsafe { AudioObjectHasProperty(dev, &a) } == 0 {
             continue;
         }
@@ -246,42 +305,21 @@ pub fn set_mute_default(muted: bool) {
 }
 
 pub fn supports_volume_default() -> bool {
-    volume_value(default_device()).is_some()
+    volume_value(default_device(), kScopeInput).is_some()
 }
 
 pub fn get_volume_default() -> Option<f32> {
-    volume_value(default_device())
+    volume_value(default_device(), kScopeInput)
 }
 
 pub fn set_volume_default(value: f32) {
-    set_volume_value(default_device(), value);
+    set_volume_value(default_device(), kScopeInput, value);
 }
 
 pub fn devices() -> Vec<Device> {
-    let a = addr(kDevices, kScopeGlobal, kElementMain);
-    let mut size = 0u32;
-    if unsafe { AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &a, 0, ptr::null(), &mut size) }
-        != 0
-    {
-        return vec![];
-    }
-    let count = size as usize / std::mem::size_of::<AudioObjectID>();
-    let mut ids = vec![0u32; count];
-    if unsafe {
-        AudioObjectGetPropertyData(
-            kAudioObjectSystemObject,
-            &a,
-            0,
-            ptr::null(),
-            &mut size,
-            ids.as_mut_ptr() as *mut c_void,
-        )
-    } != 0
-    {
-        return vec![];
-    }
     let current = default_device();
-    ids.into_iter()
+    all_device_ids()
+        .into_iter()
         .filter(|&id| has_input(id))
         .map(|id| Device {
             id: id.to_string(),
@@ -292,19 +330,32 @@ pub fn devices() -> Vec<Device> {
 }
 
 pub fn set_default(id: &str) {
-    let Ok(dev) = id.parse::<AudioObjectID>() else {
-        return;
-    };
-    let a = addr(kDefaultInputDevice, kScopeGlobal, kElementMain);
-    let mut v = dev;
-    unsafe {
-        AudioObjectSetPropertyData(
-            kAudioObjectSystemObject,
-            &a,
-            0,
-            ptr::null(),
-            std::mem::size_of::<AudioObjectID>() as u32,
-            &mut v as *mut _ as *const c_void,
-        );
-    }
+    set_default_for(kDefaultInputDevice, id);
+}
+
+// --- output (playback) devices ---
+
+pub fn output_devices() -> Vec<Device> {
+    let current = default_device_for(kDefaultOutputDevice);
+    all_device_ids()
+        .into_iter()
+        .filter(|&id| has_output(id))
+        .map(|id| Device {
+            id: id.to_string(),
+            name: device_name(id).unwrap_or_else(|| "Unknown device".to_string()),
+            is_default: id == current,
+        })
+        .collect()
+}
+
+pub fn set_default_output(id: &str) {
+    set_default_for(kDefaultOutputDevice, id);
+}
+
+pub fn get_output_volume() -> Option<f32> {
+    volume_value(default_device_for(kDefaultOutputDevice), kScopeOutput)
+}
+
+pub fn set_output_volume(value: f32) {
+    set_volume_value(default_device_for(kDefaultOutputDevice), kScopeOutput, value);
 }

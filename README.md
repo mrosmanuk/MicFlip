@@ -23,7 +23,8 @@ backends and a web UI. One codebase, three platforms
 - **Global hotkey** to toggle mute from anywhere (default ⌘/Ctrl + Shift + M), re-bindable in Settings
 - **OS-level mute** that silences the input device itself, so every app gets true silence
 - **Vibrant tray badge**, a red **LIVE** when the mic is on, grayed out when muted
-- **Notification toggles** for sound and on-screen HUD, each independently switchable *(HUD + sound in progress)*
+- **Notification toggles** for sound, the on-screen HUD, and device-switch popups, each independently switchable
+- **Device-switch hotkeys** that jump straight to a chosen input or output device
 - **Fast input device switching** and **per-device input volume**
 - **Buy me a beer 🍺**, an optional donation link in Settings and the About panel
 

@@ -6,6 +6,7 @@ mod miccheck;
 
 use std::fs;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -17,12 +18,26 @@ use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 const DONATION_URL: &str = "https://paypal.me/rosmanuk";
 const TRAY_ID: &str = "main";
 
 // --- Settings ---------------------------------------------------------------
+
+/// A hotkey that switches the default input or output device on press.
+#[derive(Serialize, Deserialize, Clone)]
+struct DeviceHotkey {
+    accelerator: String,
+    /// "input" or "output".
+    kind: String,
+    device_id: String,
+    device_name: String,
+}
+
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Settings {
@@ -30,6 +45,12 @@ struct Settings {
     visual_enabled: bool,
     launch_at_login: bool,
     hotkey: String,
+    /// Hotkeys mapped to fast device switching.
+    #[serde(default)]
+    device_hotkeys: Vec<DeviceHotkey>,
+    /// Show an on-screen popup when a device is switched via hotkey.
+    #[serde(default = "default_true")]
+    device_switch_notify: bool,
 }
 
 impl Default for Settings {
@@ -39,6 +60,8 @@ impl Default for Settings {
             visual_enabled: true,
             launch_at_login: false,
             hotkey: "CmdOrCtrl+Shift+M".to_string(),
+            device_hotkeys: Vec::new(),
+            device_switch_notify: true,
         }
     }
 }
@@ -101,7 +124,64 @@ fn on_toggle(app: &AppHandle, muted: bool) {
         play_feedback(muted);
     }
     if visual {
-        show_hud(app, muted);
+        show_hud(
+            app,
+            HudPayload {
+                badge: "LIVE".into(),
+                label: if muted { "Microphone muted" } else { "Microphone live" }.into(),
+                tone: if muted { "muted" } else { "live" }.into(),
+            },
+        );
+    }
+}
+
+/// Handle a pressed global shortcut: either the mute toggle or one of the
+/// configured device-switch hotkeys.
+fn dispatch_shortcut(app: &AppHandle, shortcut: &Shortcut) {
+    let (toggle_hotkey, device_hotkeys) = {
+        let state = app.state::<AppState>();
+        let g = state.settings.lock().unwrap();
+        (g.hotkey.clone(), g.device_hotkeys.clone())
+    };
+
+    let matches = |accel: &str| {
+        Shortcut::from_str(accel)
+            .map(|s| &s == shortcut)
+            .unwrap_or(false)
+    };
+
+    if matches(&toggle_hotkey) {
+        toggle_from_app(app);
+        return;
+    }
+    if let Some(hk) = device_hotkeys.iter().find(|hk| matches(&hk.accelerator)) {
+        switch_device_inner(app, &hk.kind, &hk.device_id, &hk.device_name);
+    }
+}
+
+/// Switch the default input or output device, refresh the UI, and (optionally)
+/// show a popup naming the newly selected device.
+fn switch_device_inner(app: &AppHandle, kind: &str, id: &str, name: &str) {
+    let state = app.state::<AppState>();
+    let is_output = kind == "output";
+    if is_output {
+        state.mic.select_output_device(id);
+    } else {
+        state.mic.select_device(id);
+        let muted = state.mic.is_muted();
+        refresh_state(app, muted);
+    }
+
+    let notify = state.settings.lock().unwrap().device_switch_notify;
+    if notify {
+        show_hud(
+            app,
+            HudPayload {
+                badge: if is_output { "🔊".into() } else { "🎙".into() },
+                label: name.to_string(),
+                tone: "info".into(),
+            },
+        );
     }
 }
 
@@ -135,11 +215,22 @@ fn play_feedback(muted: bool) {
 
 static HUD_GEN: AtomicU64 = AtomicU64::new(0);
 
-fn show_hud(app: &AppHandle, muted: bool) {
+/// What the HUD overlay renders for one notification.
+#[derive(Serialize, Clone)]
+struct HudPayload {
+    /// Large badge text (e.g. "LIVE" or a device-kind glyph).
+    badge: String,
+    /// Subtitle line (mic state or device name).
+    label: String,
+    /// "live" | "muted" | "info" — drives the badge color.
+    tone: String,
+}
+
+fn show_hud(app: &AppHandle, payload: HudPayload) {
     let Some(hud) = app.get_webview_window("hud") else {
         return;
     };
-    let _ = hud.emit("hud:show", muted);
+    let _ = hud.emit("hud:show", payload);
     position_hud(&hud);
     let _ = hud.show();
 
@@ -211,6 +302,33 @@ fn select_device(app: AppHandle, id: String) {
 }
 
 #[tauri::command]
+fn list_output_devices(state: State<AppState>) -> Vec<Device> {
+    state.mic.output_devices()
+}
+
+#[tauri::command]
+fn select_output_device(state: State<AppState>, id: String) {
+    state.mic.select_output_device(&id);
+}
+
+#[tauri::command]
+fn get_output_volume(state: State<AppState>) -> Option<f32> {
+    state.mic.output_volume()
+}
+
+#[tauri::command]
+fn set_output_volume(state: State<AppState>, value: f32) {
+    state.mic.set_output_volume(value);
+}
+
+/// Switch the default device for `kind` ("input" | "output"). Used by the
+/// Settings UI (to preview a binding) and shares the hotkey code path.
+#[tauri::command]
+fn switch_device(app: AppHandle, kind: String, id: String, name: String) {
+    switch_device_inner(&app, &kind, &id, &name);
+}
+
+#[tauri::command]
 fn get_volume(state: State<AppState>) -> Option<f32> {
     state.mic.volume()
 }
@@ -228,15 +346,26 @@ fn get_settings(state: State<AppState>) -> Settings {
 #[tauri::command]
 fn save_settings(app: AppHandle, settings: Settings) {
     let state = app.state::<AppState>();
-    let old_hotkey = state.settings.lock().unwrap().hotkey.clone();
+    let old_accelerators = {
+        let g = state.settings.lock().unwrap();
+        hotkey_accelerators(&g)
+    };
     {
         let mut guard = state.settings.lock().unwrap();
         *guard = settings.clone();
     }
     state.save();
-    if settings.hotkey != old_hotkey {
-        register_hotkey(&app, &settings.hotkey);
+    if hotkey_accelerators(&settings) != old_accelerators {
+        register_all_hotkeys(&app);
     }
+}
+
+/// The full set of registered accelerators for a settings snapshot: the mute
+/// toggle plus every device-switch hotkey.
+fn hotkey_accelerators(settings: &Settings) -> Vec<String> {
+    let mut all = vec![settings.hotkey.clone()];
+    all.extend(settings.device_hotkeys.iter().map(|hk| hk.accelerator.clone()));
+    all
 }
 
 #[tauri::command]
@@ -290,11 +419,29 @@ fn open_url(url: &str) {
     let _ = std::process::Command::new("xdg-open").arg(url).spawn();
 }
 
-fn register_hotkey(app: &AppHandle, accelerator: &str) {
+/// Register the mute toggle plus every configured device-switch hotkey.
+/// Skips blank or duplicate accelerators so one bad row can't break the rest.
+fn register_all_hotkeys(app: &AppHandle) {
+    let mut accelerators: Vec<String> = Vec::new();
+    {
+        let state = app.state::<AppState>();
+        let g = state.settings.lock().unwrap();
+        accelerators.push(g.hotkey.clone());
+        for hk in &g.device_hotkeys {
+            accelerators.push(hk.accelerator.clone());
+        }
+    }
+
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
-    if let Err(e) = gs.register(accelerator) {
-        eprintln!("MicFlip: failed to register hotkey '{accelerator}': {e}");
+    let mut seen = std::collections::HashSet::new();
+    for accel in accelerators {
+        if accel.trim().is_empty() || !seen.insert(accel.clone()) {
+            continue;
+        }
+        if let Err(e) = gs.register(accel.as_str()) {
+            eprintln!("MicFlip: failed to register hotkey '{accel}': {e}");
+        }
     }
 }
 
@@ -330,9 +477,9 @@ fn main() {
     tauri::Builder::default()
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
+                .with_handler(|app, shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
-                        toggle_from_app(app);
+                        dispatch_shortcut(app, shortcut);
                     }
                 })
                 .build(),
@@ -395,8 +542,8 @@ fn main() {
                 .visible(false)
                 .build()?;
 
-            // Global shortcut.
-            register_hotkey(&handle, &settings.hotkey);
+            // Global shortcuts (mute toggle + device switches).
+            register_all_hotkeys(&handle);
 
             // Menu-bar-only on macOS (no Dock icon).
             #[cfg(target_os = "macos")]
@@ -410,6 +557,11 @@ fn main() {
             set_muted,
             list_devices,
             select_device,
+            list_output_devices,
+            select_output_device,
+            get_output_volume,
+            set_output_volume,
+            switch_device,
             get_volume,
             set_volume,
             get_settings,

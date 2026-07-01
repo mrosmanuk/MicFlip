@@ -99,3 +99,42 @@ pub fn devices() -> Vec<Device> {
 pub fn set_default(id: &str) {
     let _ = pactl(&["set-default-source", id]);
 }
+
+// --- output (sinks) ---
+
+pub fn output_devices() -> Vec<Device> {
+    let Some(list) = pactl(&["list", "short", "sinks"]) else {
+        return vec![];
+    };
+    let current = pactl(&["get-default-sink"])
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    list.lines()
+        .filter_map(|line| {
+            // columns: index \t name \t driver \t sample-spec \t state
+            let mut cols = line.split('\t');
+            let _index = cols.next()?;
+            let name = cols.next()?.to_string();
+            Some(Device {
+                is_default: name == current,
+                id: name.clone(),
+                name,
+            })
+        })
+        .collect()
+}
+
+pub fn set_default_output(id: &str) {
+    let _ = pactl(&["set-default-sink", id]);
+}
+
+pub fn get_output_volume() -> Option<f32> {
+    let out = pactl(&["get-sink-volume", "@DEFAULT_SINK@"])?;
+    let pct = out.split('%').next()?.rsplit(|c: char| c == ' ' || c == '/').next()?;
+    pct.trim().parse::<f32>().ok().map(|p| (p / 100.0).clamp(0.0, 1.0))
+}
+
+pub fn set_output_volume(value: f32) {
+    let pct = (value.clamp(0.0, 1.0) * 100.0).round() as i32;
+    let _ = pactl(&["set-sink-volume", "@DEFAULT_SINK@", &format!("{pct}%")]);
+}

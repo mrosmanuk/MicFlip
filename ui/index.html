@@ -22,6 +22,8 @@
       <input type="checkbox" id="sound" /></label>
     <label class="row"><span>Visual notification (HUD)</span>
       <input type="checkbox" id="visual" /></label>
+    <label class="row"><span>Popup when switching device</span>
+      <input type="checkbox" id="notify-switch" /></label>
   </section>
 
   <section>
@@ -34,6 +36,13 @@
   </section>
 
   <section>
+    <h2>Device shortcuts</h2>
+    <div id="device-hotkeys"></div>
+    <button id="add-hotkey" class="recorder">+ Add shortcut</button>
+    <p class="hint">Bind a hotkey to instantly switch your input or output device. Click the key button, then hold your combo. Esc cancels</p>
+  </section>
+
+  <section>
     <h2>Input device</h2>
     <div class="row">
       <span>Microphone</span>
@@ -42,6 +51,18 @@
     <div class="row" id="volume-row">
       <span>Input volume</span>
       <input type="range" id="volume" min="0" max="1" step="0.01" />
+    </div>
+  </section>
+
+  <section>
+    <h2>Output device</h2>
+    <div class="row">
+      <span>Speaker</span>
+      <select id="output-devices"></select>
+    </div>
+    <div class="row" id="output-volume-row">
+      <span>Output volume</span>
+      <input type="range" id="output-volume" min="0" max="1" step="0.01" />
     </div>
   </section>
 

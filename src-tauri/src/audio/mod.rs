@@ -104,4 +104,22 @@ impl Mic {
     pub fn current_device_name(&self) -> String {
         platform::default_name().unwrap_or_else(|| "-".to_string())
     }
+
+    // --- output (playback) devices ---
+
+    pub fn output_devices(&self) -> Vec<Device> {
+        platform::output_devices()
+    }
+
+    pub fn select_output_device(&self, id: &str) {
+        platform::set_default_output(id);
+    }
+
+    pub fn output_volume(&self) -> Option<f32> {
+        platform::get_output_volume()
+    }
+
+    pub fn set_output_volume(&self, value: f32) {
+        platform::set_output_volume(value.clamp(0.0, 1.0));
+    }
 }

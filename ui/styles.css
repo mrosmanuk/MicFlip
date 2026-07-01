@@ -96,6 +96,32 @@ select {
 
 .hint { color: var(--muted); font-size: 11px; margin: 8px 0 4px; line-height: 1.4; }
 
+/* device shortcut rows */
+.hotkey-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 0;
+  border-top: 1px solid var(--border);
+}
+.hotkey-row:first-child { border-top: none; }
+.hotkey-row select { max-width: none; }
+.hotkey-row .hk-kind { flex: 0 0 auto; }
+.hotkey-row .hk-device { flex: 1 1 auto; min-width: 0; }
+.hotkey-row .hk-keys { flex: 0 0 auto; white-space: nowrap; padding: 6px 10px; }
+.hk-remove {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.hk-remove:hover { color: var(--accent); }
+#add-hotkey { width: 100%; margin-top: 8px; }
+
 footer {
   color: var(--muted);
   font-size: 11px;

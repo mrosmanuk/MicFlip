@@ -17,7 +17,7 @@ use windows::core::Interface;
 use windows::Win32::Foundation::BOOL;
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{
-    eCapture, eConsole, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator,
+    eCapture, eConsole, eRender, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED,
@@ -94,4 +94,43 @@ pub fn devices() -> Vec<Device> {
 pub fn set_default(_id: &str) {
     // No public Windows API to set the default device; requires IPolicyConfig.
     // TODO: implement via IPolicyConfig and validate on Windows.
+}
+
+// --- output (render / playback) devices ---
+
+fn render_endpoint_volume() -> Option<IAudioEndpointVolume> {
+    ensure_com();
+    unsafe {
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+        let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
+        device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None).ok()
+    }
+}
+
+pub fn output_devices() -> Vec<Device> {
+    // v1: expose the current default render endpoint only, mirroring capture.
+    vec![Device {
+        id: "default".to_string(),
+        name: "Default speaker".to_string(),
+        is_default: true,
+    }]
+}
+
+pub fn set_default_output(_id: &str) {
+    // Same limitation as input: switching the default endpoint needs IPolicyConfig.
+    // TODO: implement via IPolicyConfig and validate on Windows.
+}
+
+pub fn get_output_volume() -> Option<f32> {
+    let vol = render_endpoint_volume()?;
+    unsafe { vol.GetMasterVolumeLevelScalar().ok() }
+}
+
+pub fn set_output_volume(value: f32) {
+    if let Some(vol) = render_endpoint_volume() {
+        unsafe {
+            let _ = vol.SetMasterVolumeLevelScalar(value.clamp(0.0, 1.0), ptr::null());
+        }
+    }
 }
