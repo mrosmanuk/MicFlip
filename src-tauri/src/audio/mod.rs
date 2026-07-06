@@ -43,13 +43,23 @@ impl Mic {
         }
     }
 
-    pub fn is_muted(&self) -> bool {
-        if let Some(v) = platform::get_volume_default() {
-            if v <= SILENT {
-                return true;
-            }
+    /// Read the true muted state of the current default input device, or
+    /// `None` when no default input device is currently readable (e.g. mid
+    /// device-reconnect or right after wake). A device counts as muted when
+    /// its input gain is driven to zero OR its hardware mute flag is set —
+    /// some devices report a mute flag yet still pass audio, so both matter.
+    pub fn probe_muted(&self) -> Option<bool> {
+        let volume = platform::get_volume_default();
+        let mute = platform::get_mute_default();
+        if volume.is_none() && mute.is_none() {
+            return None;
         }
-        platform::get_mute_default().unwrap_or(false)
+        let silenced = volume.map(|v| v <= SILENT).unwrap_or(false);
+        Some(silenced || mute.unwrap_or(false))
+    }
+
+    pub fn is_muted(&self) -> bool {
+        self.probe_muted().unwrap_or(false)
     }
 
     pub fn set_muted(&self, muted: bool) {

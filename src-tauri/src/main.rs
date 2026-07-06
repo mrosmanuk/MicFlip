@@ -545,6 +545,33 @@ fn main() {
             // Global shortcuts (mute toggle + device switches).
             register_all_hotkeys(&handle);
 
+            // Keep the badge locked to the real hardware state. The app only
+            // updates the tray on its own toggles, so anything it didn't do —
+            // a hardware mute button, Control Center, another app, a device
+            // reconnect, or a sleep/wake cycle that restores a different
+            // default input — would otherwise leave the badge stale until the
+            // next manual toggle. A short poll re-reads the true state and
+            // resyncs the tray (and any open window) the moment it diverges.
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    let mut last = initial_muted;
+                    loop {
+                        std::thread::sleep(Duration::from_millis(750));
+                        // No default input right now (mid reconnect / wake) —
+                        // hold the last badge rather than flap to "live".
+                        let Some(muted) = handle.state::<AppState>().mic.probe_muted() else {
+                            continue;
+                        };
+                        if muted != last {
+                            last = muted;
+                            let h = handle.clone();
+                            let _ = handle.run_on_main_thread(move || refresh_state(&h, muted));
+                        }
+                    }
+                });
+            }
+
             // Menu-bar-only on macOS (no Dock icon).
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
