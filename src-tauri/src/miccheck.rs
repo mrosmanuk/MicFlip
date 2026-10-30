@@ -3,10 +3,13 @@
 //! Captures the default input device with cpal and emits a normalized 0..1
 //! level as a `mic:level` event. The cpal stream is not Send, so it lives
 //! entirely on a dedicated thread that we stop by signalling a channel.
+//! Also hosts the short silence probe used to spot on-device mute buttons.
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 pub struct MicCheck {
@@ -95,6 +98,45 @@ fn run_stream(app: &AppHandle, rx: Receiver<()>) -> Result<(), String> {
     stream.play().map_err(|e| e.to_string())?;
     let _ = rx.recv(); // keep the stream alive until stop() signals
     Ok(())
+}
+
+/// Whether the default input is delivering pure digital silence: every sample
+/// exactly zero over a short window. Mics with an on-device mute button (e.g.
+/// FIFINE K688CT) cut the signal this way without touching the OS mute flag,
+/// while a live capsule always has some noise floor. `None` when the device
+/// can't be opened or delivers nothing.
+pub fn is_digitally_silent() -> Option<bool> {
+    let device = cpal::default_host().default_input_device()?;
+    let supported = device.default_input_config().ok()?;
+    if supported.sample_format() != cpal::SampleFormat::F32 {
+        return None;
+    }
+    // Skip the first ~100 ms: a freshly opened stream can start with zeros.
+    let warmup = (supported.sample_rate().0 / 10 * supported.channels() as u32) as usize;
+    let seen = Arc::new(AtomicUsize::new(0));
+    let heard = Arc::new(AtomicBool::new(false));
+    let (s, h) = (seen.clone(), heard.clone());
+    let stream = device
+        .build_input_stream(
+            &supported.into(),
+            move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                let before = s.fetch_add(data.len(), Ordering::Relaxed);
+                let skip = warmup.saturating_sub(before).min(data.len());
+                if data[skip..].iter().any(|&x| x != 0.0) {
+                    h.store(true, Ordering::Relaxed);
+                }
+            },
+            |e| eprintln!("MicFlip: silence probe error: {e}"),
+            None,
+        )
+        .ok()?;
+    stream.play().ok()?;
+    std::thread::sleep(Duration::from_millis(350));
+    drop(stream);
+    if seen.load(Ordering::Relaxed) <= warmup {
+        return None;
+    }
+    Some(!heard.load(Ordering::Relaxed))
 }
 
 /// RMS of the samples, mapped from roughly -60..0 dBFS onto 0..1.

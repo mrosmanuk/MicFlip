@@ -57,6 +57,11 @@ pub fn get_mute_default() -> Option<bool> {
     unsafe { vol.GetMute().ok().map(|b: BOOL| b.as_bool()) }
 }
 
+/// Only macOS probes for on-device mute buttons so far.
+pub fn input_in_use() -> bool {
+    false
+}
+
 pub fn set_mute_default(muted: bool) {
     if let Some(vol) = endpoint_volume() {
         unsafe {

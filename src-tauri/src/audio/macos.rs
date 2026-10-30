@@ -34,6 +34,7 @@ const kDefaultOutputDevice: u32 = fourcc(b"dOut");
 const kDevices: u32 = fourcc(b"dev#");
 const kMute: u32 = fourcc(b"mute");
 const kVolumeScalar: u32 = fourcc(b"volm");
+const kIsRunningSomewhere: u32 = fourcc(b"gone");
 const kObjectName: u32 = fourcc(b"lnam");
 const kStreamConfiguration: u32 = fourcc(b"slay");
 
@@ -298,6 +299,18 @@ pub fn get_mute_default() -> Option<bool> {
     } else {
         None
     }
+}
+
+/// Whether any process (a call app, or our own Mic Check) is capturing from
+/// the default input right now.
+pub fn input_in_use() -> bool {
+    let a = addr(kIsRunningSomewhere, kScopeGlobal, kElementMain);
+    let mut val: u32 = 0;
+    let mut size = 4u32;
+    let st = unsafe {
+        AudioObjectGetPropertyData(default_device(), &a, 0, ptr::null(), &mut size, &mut val as *mut _ as *mut c_void)
+    };
+    st == 0 && val != 0
 }
 
 pub fn set_mute_default(muted: bool) {

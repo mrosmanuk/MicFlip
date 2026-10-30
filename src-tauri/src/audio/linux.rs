@@ -44,6 +44,11 @@ pub fn get_mute_default() -> Option<bool> {
     Some(out.to_lowercase().contains("yes"))
 }
 
+/// Only macOS probes for on-device mute buttons so far.
+pub fn input_in_use() -> bool {
+    false
+}
+
 pub fn set_mute_default(muted: bool) {
     let _ = pactl(&[
         "set-source-mute",
