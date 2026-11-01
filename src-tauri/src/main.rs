@@ -602,8 +602,9 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error building MicFlip")
         .run(|_app, event| {
-            // Keep running with no windows open (tray app).
-            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+            // Keep running with no windows open (tray app). An explicit
+            // app.exit() (Quit) carries a code and must go through.
+            if let tauri::RunEvent::ExitRequested { api, code: None, .. } = event {
                 api.prevent_exit();
             }
         });
