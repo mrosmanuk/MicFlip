@@ -58,11 +58,6 @@ impl Mic {
         Some(silenced || mute.unwrap_or(false))
     }
 
-    /// Whether some app is currently capturing from the default input.
-    pub fn input_in_use(&self) -> bool {
-        platform::input_in_use()
-    }
-
     pub fn is_muted(&self) -> bool {
         self.probe_muted().unwrap_or(false)
     }

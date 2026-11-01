@@ -7,7 +7,7 @@ mod miccheck;
 use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -97,13 +97,8 @@ fn tray_image(muted: bool) -> Image<'static> {
     Image::from_bytes(bytes).expect("valid tray png")
 }
 
-/// The state the tray badge currently shows, so the poll loop can tell when
-/// reality has drifted from it.
-static SHOWN_MUTED: AtomicBool = AtomicBool::new(false);
-
 /// Update the tray icon and notify any open windows of the new state.
 fn refresh_state(app: &AppHandle, muted: bool) {
-    SHOWN_MUTED.store(muted, Ordering::SeqCst);
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let _ = tray.set_icon(Some(tray_image(muted)));
         let _ = tray.set_tooltip(Some(if muted { "Microphone muted" } else { "Microphone live" }));
@@ -510,7 +505,6 @@ fn main() {
                 config_path,
             };
             let initial_muted = state.mic.is_muted();
-            SHOWN_MUTED.store(initial_muted, Ordering::SeqCst);
             app.manage(state);
 
             // Tray.
@@ -558,35 +552,19 @@ fn main() {
             // default input — would otherwise leave the badge stale until the
             // next manual toggle. A short poll re-reads the true state and
             // resyncs the tray (and any open window) the moment it diverges.
-            //
-            // Some mics (e.g. FIFINE K688CT) have a mute button that never
-            // touches the OS mute flag and only outputs digital silence. That
-            // is only observable while something is capturing, so during a
-            // call we briefly sample the input; two silent probes in a row
-            // count as muted, so one odd buffer can't flip the badge.
             {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
-                    let mut silent_streak = 0;
+                    let mut last = initial_muted;
                     loop {
                         std::thread::sleep(Duration::from_millis(750));
-                        let state = handle.state::<AppState>();
                         // No default input right now (mid reconnect / wake) —
                         // hold the last badge rather than flap to "live".
-                        let Some(mut muted) = state.mic.probe_muted() else {
+                        let Some(muted) = handle.state::<AppState>().mic.probe_muted() else {
                             continue;
                         };
-                        if !muted && state.mic.input_in_use() {
-                            match miccheck::is_digitally_silent() {
-                                Some(true) => silent_streak += 1,
-                                Some(false) => silent_streak = 0,
-                                None => {}
-                            }
-                            muted = silent_streak >= 2;
-                        } else {
-                            silent_streak = 0;
-                        }
-                        if muted != SHOWN_MUTED.load(Ordering::SeqCst) {
+                        if muted != last {
+                            last = muted;
                             let h = handle.clone();
                             let _ = handle.run_on_main_thread(move || refresh_state(&h, muted));
                         }

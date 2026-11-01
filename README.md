@@ -24,7 +24,6 @@ backends and a web UI. One codebase, three platforms
 - **OS-level mute** that silences the input device itself, so every app gets true silence
 - **Vibrant tray badge**, a red **LIVE** when the mic is on, grayed out when muted
 - **Notification toggles** for sound, the on-screen HUD, and device-switch popups, each independently switchable
-- **Hardware mute button detection** (macOS) for mics whose own mute button just outputs silence (e.g. FIFINE K688CT), so the tray badge follows it during calls
 - **Device-switch hotkeys** that jump straight to a chosen input or output device
 - **Fast input device switching** and **per-device input volume**
 - **Buy me a beer 🍺**, an optional donation link in Settings and the About panel
