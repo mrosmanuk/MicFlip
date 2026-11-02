@@ -99,6 +99,11 @@ impl Mic {
         platform::devices()
     }
 
+    /// Pin mute/volume to the input with this name; empty follows the default.
+    pub fn set_target(&self, name: &str) {
+        platform::set_target(name);
+    }
+
     pub fn select_device(&self, id: &str) {
         platform::set_default(id);
     }

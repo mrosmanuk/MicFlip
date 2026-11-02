@@ -153,6 +153,27 @@ async function loadDevices() {
     await loadVolume();
   };
 
+  // Mute target: the current input, or one mic pinned by name.
+  const muteSel = $("mute-device");
+  muteSel.innerHTML = "";
+  const names = inputDevices.map((d) => d.name);
+  if (settings.mute_device && !names.includes(settings.mute_device)) {
+    names.push(settings.mute_device); // pinned mic is unplugged right now
+  }
+  for (const [value, label] of [["", "Current input"], ...names.map((n) => [n, n])]) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    opt.selected = value === (settings.mute_device || "");
+    muteSel.appendChild(opt);
+  }
+  muteSel.onchange = async () => {
+    settings.mute_device = muteSel.value;
+    await persist();
+    await refresh();
+    await loadVolume();
+  };
+
   const outSel = $("output-devices");
   outSel.innerHTML = "";
   for (const d of outputDevices) {

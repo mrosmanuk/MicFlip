@@ -15,6 +15,9 @@ fn pactl(args: &[&str]) -> Option<String> {
     Some(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// Pinning a mute target is macOS-only for now; the default input is used.
+pub fn set_target(_name: &str) {}
+
 pub fn default_id() -> String {
     pactl(&["get-default-source"])
         .map(|s| s.trim().to_string())

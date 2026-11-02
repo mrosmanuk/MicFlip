@@ -44,6 +44,9 @@ fn endpoint_volume() -> Option<IAudioEndpointVolume> {
     unsafe { device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None).ok() }
 }
 
+/// Pinning a mute target is macOS-only for now; the default input is used.
+pub fn set_target(_name: &str) {}
+
 pub fn default_id() -> String {
     "default".to_string()
 }

@@ -51,6 +51,10 @@ struct Settings {
     /// Show an on-screen popup when a device is switched via hotkey.
     #[serde(default = "default_true")]
     device_switch_notify: bool,
+    /// Input the mute toggle always acts on, by name; empty follows the
+    /// default input (which macOS may switch, e.g. to AirPods).
+    #[serde(default)]
+    mute_device: String,
 }
 
 impl Default for Settings {
@@ -62,6 +66,7 @@ impl Default for Settings {
             hotkey: "CmdOrCtrl+Shift+M".to_string(),
             device_hotkeys: Vec::new(),
             device_switch_notify: true,
+            mute_device: String::new(),
         }
     }
 }
@@ -354,6 +359,7 @@ fn save_settings(app: AppHandle, settings: Settings) {
         let mut guard = state.settings.lock().unwrap();
         *guard = settings.clone();
     }
+    state.mic.set_target(&settings.mute_device);
     state.save();
     if hotkey_accelerators(&settings) != old_accelerators {
         register_all_hotkeys(&app);
@@ -498,8 +504,10 @@ fn main() {
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or_default();
 
+            let mic = Mic::new();
+            mic.set_target(&settings.mute_device);
             let state = AppState {
-                mic: Mic::new(),
+                mic,
                 mic_check: MicCheck::new(),
                 settings: Mutex::new(settings.clone()),
                 config_path,

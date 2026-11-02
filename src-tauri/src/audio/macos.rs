@@ -6,6 +6,7 @@ use core_foundation::base::TCFType;
 use core_foundation::string::{CFString, CFStringRef};
 use std::os::raw::c_void;
 use std::ptr;
+use std::sync::Mutex;
 
 use super::Device;
 
@@ -95,6 +96,22 @@ fn default_device_for(selector: u32) -> AudioObjectID {
 
 fn default_device() -> AudioObjectID {
     default_device_for(kDefaultInputDevice)
+}
+
+/// Name of the input the mute controls act on; empty = the default input.
+/// Stored by name since device ids change when a USB mic is replugged.
+static TARGET: Mutex<String> = Mutex::new(String::new());
+
+/// The pinned input when it is connected, otherwise the default input.
+fn target_device() -> AudioObjectID {
+    let name = TARGET.lock().unwrap().clone();
+    if name.is_empty() {
+        return default_device();
+    }
+    all_device_ids()
+        .into_iter()
+        .find(|&id| has_input(id) && device_name(id).as_deref() == Some(name.as_str()))
+        .unwrap_or_else(default_device)
 }
 
 fn string_property(dev: AudioObjectID, selector: u32) -> Option<String> {
@@ -275,16 +292,20 @@ fn set_volume_value(dev: AudioObjectID, scope: u32, value: f32) -> bool {
 
 // === Backend interface used by audio::Mic ===
 
+pub fn set_target(name: &str) {
+    *TARGET.lock().unwrap() = name.to_string();
+}
+
 pub fn default_id() -> String {
-    default_device().to_string()
+    target_device().to_string()
 }
 
 pub fn default_name() -> Option<String> {
-    device_name(default_device())
+    device_name(target_device())
 }
 
 pub fn get_mute_default() -> Option<bool> {
-    let dev = default_device();
+    let dev = target_device();
     let mut saw = false;
     let mut muted = false;
     for &el in &ELEMENTS {
@@ -301,19 +322,19 @@ pub fn get_mute_default() -> Option<bool> {
 }
 
 pub fn set_mute_default(muted: bool) {
-    set_mute_value(default_device(), muted);
+    set_mute_value(target_device(), muted);
 }
 
 pub fn supports_volume_default() -> bool {
-    volume_value(default_device(), kScopeInput).is_some()
+    volume_value(target_device(), kScopeInput).is_some()
 }
 
 pub fn get_volume_default() -> Option<f32> {
-    volume_value(default_device(), kScopeInput)
+    volume_value(target_device(), kScopeInput)
 }
 
 pub fn set_volume_default(value: f32) {
-    set_volume_value(default_device(), kScopeInput, value);
+    set_volume_value(target_device(), kScopeInput, value);
 }
 
 pub fn devices() -> Vec<Device> {
