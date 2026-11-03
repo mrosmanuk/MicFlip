@@ -3,6 +3,7 @@
 
 mod audio;
 mod miccheck;
+mod pad;
 
 use std::fs;
 use std::path::PathBuf;
@@ -109,6 +110,7 @@ fn refresh_state(app: &AppHandle, muted: bool) {
         let _ = tray.set_tooltip(Some(if muted { "Microphone muted" } else { "Microphone live" }));
     }
     let _ = app.emit("mic:state", muted);
+    pad::set_led(muted);
 }
 
 fn toggle_from_app(app: &AppHandle) {
@@ -514,6 +516,7 @@ fn main() {
             };
             let initial_muted = state.mic.is_muted();
             app.manage(state);
+            pad::set_led(initial_muted);
 
             // Tray.
             let toggle_i = MenuItem::with_id(app, "toggle", "Toggle Mute", true, None::<&str>)?;
